@@ -1,58 +1,202 @@
-# ShopAssist — Mini-Project 1
+# ShopAssist — Smart Shopping Support Assistant
 
-Order support for Northwind Store (a fictional online store): a FastAPI service with per-session memory, three
-validated tools, a defended system prompt and streamed answers. The model is reached only through a LiteLLM
-gateway, and both run together with Docker Compose.
+ShopAssist is an AI-powered customer support assistant developed for **Northwind Store**, a fictional online shopping platform. It helps customers track orders, estimate delivery times, check return eligibility, and get answers to shopping-related questions.
 
-**Author:** Geethika Dharmarao (GitHub: [Geethika0503](https://github.com/Geethika0503))
-**Model tested:** `shopassist` → `groq/openai/gpt-oss-20b` (backup: `groq/openai/gpt-oss-120b`)
+Built using **FastAPI, LangChain, LiteLLM, and Groq**, the application supports tool calling, conversation memory, input validation, prompt-injection protection, and streaming responses.
+
+## Features
+
+- **Order Tracking:** Check order details and delivery status.
+- **Delivery Estimation:** Estimate delivery times using pincodes and delivery speed.
+- **Return Eligibility:** Verify returns based on delivery dates, product categories, and reasons.
+- **Conversation Memory:** Maintain recent chat history for follow-up questions.
+- **Input Validation:** Handle invalid order IDs, pincodes, and tool arguments.
+- **Prompt Security:** Resist attempts to override system instructions.
+- **Streaming Responses:** Support real-time responses using Server-Sent Events (SSE).
+- **Docker Support:** Run the application and LLM gateway together.
+
+## Tech Stack
+
+| Component | Technology |
+|---|---|
+| Language | Python |
+| API Framework | FastAPI |
+| Agent Framework | LangChain |
+| LLM Gateway | LiteLLM |
+| Model Provider | Groq |
+| Primary Model | `groq/openai/gpt-oss-20b` |
+| Fallback Model | `groq/openai/gpt-oss-120b` |
+| Containerization | Docker Compose |
+| Dependency Management | uv |
 
 ## Architecture
 
+```text
+Customer / API Client
+        |
+        v
+FastAPI Application (:8000)
+        |
+        +-- System Prompt
+        +-- Conversation Memory
+        +-- LangChain Tools
+        |     |-- Order Status
+        |     |-- Delivery Estimate
+        |     |-- Return Eligibility
+        |
+        v
+LiteLLM Gateway (:4000)
+        |
+        v
+Groq (Primary / Fallback Model)
+        |
+        v
+Customer Response
 ```
-browser / client ──► app (FastAPI, :8000) ──► litellm gateway (:4000) ──► Groq
-                     memory · prompt · tools    master key · fallback · cost      API_KEY lives only here
+
+The FastAPI application handles customer requests and tool execution, while LiteLLM manages model access and fallback routing.
+
+## Tools and Return Policy
+
+| Tool | Purpose |
+|---|---|
+| `get_order_status` | Retrieves order information |
+| `get_delivery_estimate` | Estimates delivery time |
+| `check_return_eligibility` | Checks return eligibility |
+
+**Return rules:**
+
+- Standard returns: Within **10 days** of delivery.
+- Damaged, defective, or wrong items: Within **30 days**.
+- Innerwear, groceries, and gift cards: **Non-returnable**.
+- Undelivered orders: Not eligible for return.
+
+Tool inputs are validated, including order IDs (`ORD-12345`), six-digit pincodes, return reasons, and delivery speeds.
+
+## Getting Started
+
+### Prerequisites
+
+- Python 3.12 and uv
+- Docker Desktop (for Docker setup)
+- Groq API key
+
+### Environment Configuration
+
+Configure the required API credentials, LiteLLM gateway settings, and application options in a local `.env` file.
+
+Keep API keys and secrets out of version control.
+
+### Option 1: Docker Compose (Recommended)
+
+Build and start the application and gateway:
+
+``` powershell
+docker compose up --build -d
 ```
 
-## API
+Verify the services:
 
-| Method | Path | What it does |
-|---|---|---|
-| GET | `/health` | Liveness, plus the running model, gateway, memory strategy and tools |
-| POST | `/chat` | `{"session_id", "message"}` → `{"answer", "tool_steps", "turns"}` |
-| POST | `/chat/stream` | The same, streamed as Server-Sent Events: `tool`, `token`…, `done` |
-| DELETE | `/sessions/{id}` | Forget one conversation |
-
-## Run with Docker Compose (Path A)
-
-```powershell
-docker compose up --build        # gateway + app; Ctrl+C to stop, docker compose down to remove
 ```
-Then open http://localhost:8000/docs to view the FastAPI Swagger documentation and available endpoints. To verify that the application is running, visit http://localhost:8000/health and confirm that the JSON response contains `"status": "ok"` along with the configured model, gateway, memory strategy and tools.
+docker compose ps
+```
 
-## Run without Docker (Path B)
+Access the application:
 
-```powershell
+| Service | URL |
+|---|---|
+| API Documentation | http://localhost:8000/docs |
+| Health Check | http://localhost:8000/health |
+| LiteLLM Gateway | http://localhost:4000 |
+
+Stop the services:
+
+```bash
+docker compose down
+```
+
+### Option 2: Run Locally
+
+Install dependencies:
+
+```bash
 uv sync
-# terminal 1 - the gateway
+```
+
+Start the LiteLLM gateway in terminal 1:
+
+```bash
 uv run --with "litellm[proxy]==1.80.0" litellm --config gateway/config.yaml --port 4000
-# terminal 2 - the app
+```
+
+Start FastAPI in terminal 2:
+
+```bash
 uv run uvicorn app.main:app --port 8000
 ```
 
-## Evidence
+Ensure the required environment variables are available to both processes.
 
-```powershell
-uv run python eval/run_eval.py      # needs the gateway running; writes experiments/mp1_results.md
+## API Endpoints
+
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/health` | Application health and configuration |
+| POST | `/chat` | Process customer queries |
+| POST | `/chat/stream` | Stream responses using SSE |
+| DELETE | `/sessions/{id}` | Clear a conversation session |
+
+**Example request — `POST /chat`:**
+
+```json
+{
+  "session_id": "customer-001",
+  "message": "Where is my order ORD-10233?"
+}
 ```
-Results:
-- golden: 10/10
-- golden_right_tools: 10/10
-- memory: pass
-- attacks_resisted: 4/4
 
-Discussion: `experiments/mp1_report.md`.
+## Memory and Security
 
-## Design
+**Conversation Memory**
 
-ShopAssist uses a **window memory strategy** with `KEEP_TURNS=4` to remember recent conversation history while controlling token usage and cost. The application provides three tools: `get_order_status` to check order details, `get_delivery_estimate` to estimate delivery times based on pincodes, and `check_return_eligibility` to verify whether an item can be returned. Input validation checks order IDs, pincodes, return reasons and delivery speeds, while invalid arguments produce clear error messages instead of incorrect results. The system prompt follows an instruction hierarchy and protects against prompt-injection attacks by ignoring fake system messages, unauthorized instructions and fabricated tool responses. The LiteLLM gateway provides centralized model access, retry handling and a fallback model through Groq. One limitation is that ShopAssist uses fictional order data and cannot directly cancel orders, process refunds or make changes to customer accounts.
+ShopAssist uses window-based memory to retain recent conversation context while controlling token usage.
+
+```env
+MEMORY=window
+KEEP_TURNS=4
+```
+
+Window memory used fewer tokens than the other strategies in the experiment, although it did not recall an older detail.
+
+**Prompt Security**
+
+The system prompt follows an instruction hierarchy, treats fake system messages as untrusted input, protects internal instructions, and relies on actual tool results for order information.
+
+The assistant was evaluated against four prompt-injection attacks.
+
+## Evaluation Results
+
+Run the evaluation with the LiteLLM gateway available:
+
+```bash
+uv run python eval/run_eval.py
+```
+
+| Evaluation | Result |
+|---|---|
+| Golden test cases | **10/10** |
+| Correct tool selection | **10/10** |
+| Memory test | **Pass** |
+| Prompt-injection attacks resisted | **4/4** |
+
+All checks passed in the final evaluation run.
+
+Detailed results are available in `experiments/mp1_results.md`, and memory experiments and design observations are documented in `experiments/mp1_report.md`.
+
+## Limitations and Future Improvements
+
+The application currently uses fictional order data and cannot process real refunds or cancellations. Conversation sessions are stored in application memory, so they are not persistent across restarts. Window memory may also lose older conversation details.
+
+Future improvements include integrating a real order database, adding customer authentication, building a chat interface, supporting persistent sessions, and expanding automated security tests.
+
+---
