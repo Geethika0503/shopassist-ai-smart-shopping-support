@@ -14,8 +14,21 @@ event. Name the functions it passes through, where memory, the system prompt and
 through the gateway (which container calls which, on which URL).
 
 ## 3. Memory: my choice, with numbers
-TODO: window or summary, and your KEEP_TURNS. Use numbers from your Session 19 report (tokens per call, recall at
-turn 17), and say what your choice forgets, or risks getting wrong. What would a customer notice?
+
+For ShopAssist AI, I selected the **window memory strategy** with `KEEP_TURNS=4`.
+Based on my Session 19 experiment, the results were:
+
+| Strategy | Final-turn cost | Recall at turn 17 | Extra calls |
+|---|---:|---|---:|
+| Naive | 1,686 | Yes | 0 |
+| Window | 925 | No | 0 |
+| Summarize | 1,313 | No | 2 |
+
+I selected window memory because it had the lowest final-turn cost and required no additional summarization calls. It is suitable for short customer-support conversations.
+
+However, window memory keeps only the latest four conversation turns. It may forget older details, such as an order number, delivery pincode, or the reason for a return.
+
+A customer might notice this when the chatbot asks them to repeat information they already provided earlier in the conversation.
 
 ## 4. Tools and validation
 TODO: your three tools and what you validate (order id format, pincode, speed, reason). Give one bad argument your

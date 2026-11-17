@@ -1,3 +1,4 @@
+
 """ShopAssist's tools - YOU own this file.
 
 Three tools, all READ-ONLY: they look things up and check rules. None of them cancels, refunds or changes anything -
@@ -31,6 +32,9 @@ def _find(order_id: str) -> dict:
     # TODO MP1-T2: validate the FORMAT first. If order_id doesn't match ORDER_ID (like ORD-12345), raise
     #   ValueError(f"order_id must look like ORD-12345, got {order_id!r}")
     # so the model asks the customer to check the number, instead of the tool saying "not found".
+    if not isinstance(order_id, str) or not ORDER_ID.fullmatch(order_id):
+        raise ValueError(f"order_id must look like ORD-12345, got {order_id!r}")
+
     if order_id not in ORDERS:
         raise ValueError(f"no order {order_id} - ask the customer to check the order number")
     return ORDERS[order_id]
@@ -61,6 +65,12 @@ def get_delivery_estimate(pincode: str, speed: str = "standard") -> dict:
     # TODO MP1-T2: validate before answering. Raise ValueError if:
     #   pincode is not exactly 6 digits                      e.g. "50008", "5000811", "abc123"
     #   speed is not "standard" or "express"
+    if not isinstance(pincode, str) or not re.fullmatch(r"[0-9]{6}", pincode):
+        raise ValueError(f"pincode must be exactly 6 digits, got {pincode!r}")
+
+    if speed not in {"standard", "express"}:
+        raise ValueError(f"speed must be 'standard' or 'express', got {speed!r}")
+
     metro = pincode[:2] in METRO_PREFIXES
     if speed == "express":
         return {"pincode": pincode, "speed": "express", "days": "next day" if metro else "2-3 working days",
@@ -71,12 +81,15 @@ def get_delivery_estimate(pincode: str, speed: str = "standard") -> dict:
 
 @tool(parse_docstring=True)
 def check_return_eligibility(order_id: str, reason: str) -> dict:
-    """TODO MP1-T1: write this docstring yourself - it is the prompt the model reads to decide WHEN to call this tool.
-    Say what the tool checks, and when to use it (and when not to).
+    """Check whether a customer can return an order based on delivery
+    status, product category, return reason, and return window.
+    Use when a customer asks if an item is eligible for return.
+    Do not use for order tracking, delivery estimates, or processing refunds.
 
     Args:
-        order_id: TODO - describe it (format, e.g. ORD-10231)
-        reason: TODO - describe it, and list the allowed values (see REASONS above)
+        order_id: Customer order number, e.g. ORD-10231.
+        reason: Return reason. Allowed values are wrong_size, changed_mind,
+            damaged, defective, wrong_item, not_as_described.
     """
     # TODO MP1-T1: Northwind Store's return rules, in this order:
     #   o = _find(order_id)
@@ -88,8 +101,43 @@ def check_return_eligibility(order_id: str, reason: str) -> dict:
     #   4. otherwise -> {"eligible": True, "days_since_delivery": days, "window_days": window,
     #                    "refund_rupees": o["price"], "how": "start the return on the website: My Orders > Return"}
     # TODO MP1-T2: raise ValueError if reason is not one of REASONS (say which values are allowed).
-    raise NotImplementedError("TODO MP1-T1")
+
+    o = _find(order_id)
+
+    if reason not in REASONS:
+        raise ValueError(
+            f"invalid return reason {reason!r}; allowed values are: {', '.join(sorted(REASONS))}"
+        )
+
+    if o["status"] != "delivered":
+        return {"eligible": False, "why": "not delivered yet; returns are only available after delivery"}
+
+    if o["category"] in NON_RETURNABLE:
+        return {"eligible": False, "why": f"{o['category']} is non-returnable"}
+
+    window = (
+        DAMAGED_WINDOW_DAYS
+        if reason in {"damaged", "defective", "wrong_item"}
+        else RETURN_WINDOW_DAYS
+    )
+
+    days = (TODAY - date.fromisoformat(o["delivered_on"])).days
+
+    if days > window:
+        return {
+            "eligible": False,
+            "why": f"delivered {days} days ago; window is {window} days"
+        }
+
+    return {
+        "eligible": True,
+        "days_since_delivery": days,
+        "window_days": window,
+        "refund_rupees": o["price"],
+        "how": "start the return on the website: My Orders > Return"
+    }
 
 
 TOOLS = {"get_order_status": get_order_status, "get_delivery_estimate": get_delivery_estimate,
          "check_return_eligibility": check_return_eligibility}
+
